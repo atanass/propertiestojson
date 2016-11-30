@@ -95,17 +95,17 @@ public class BuildJsonFromPropertiesMojo
 		Properties props = new Properties();
 
 		try {
-			FileInputStream fisOrig = new FileInputStream(inputFile);
-			BufferedReader br = new BufferedReader(new InputStreamReader(fisOrig, "UTF-8"));
+			FileInputStream inputFileStream = new FileInputStream(inputFile);
+			BufferedReader inputFileBufferedReader = new BufferedReader(new InputStreamReader(inputFileStream, "UTF-8"));
 
 			File outputTempFile = new File(inputFileString + "-temp");
-			FileOutputStream fos = new FileOutputStream(outputTempFile);
-			OutputStreamWriter osr = new OutputStreamWriter(fos, "UTF-8");
 
-			BufferedWriter writer = new BufferedWriter(osr);
+			FileOutputStream outputTempFileStream = new FileOutputStream(outputTempFile);
+			OutputStreamWriter outputTempFileStrWriter = new OutputStreamWriter(outputTempFileStream, "UTF-8");
+			BufferedWriter writer = new BufferedWriter(outputTempFileStrWriter);
 
 			String line = "";
-			while ((line = br.readLine()) != null) {
+			while ((line = inputFileBufferedReader.readLine()) != null) {
 				if(!(line.isEmpty() || line.trim().equals("") || line.trim().equals("\n"))) {
 					if(line.startsWith("#")){
 						continue;
@@ -121,12 +121,16 @@ public class BuildJsonFromPropertiesMojo
 				}
 			}
 
+			writer.close();
+			outputTempFileStrWriter.close();
+			outputTempFileStream.close();
+			
+			inputFileBufferedReader.close();
+			inputFileStream.close();
+
 			FileInputStream fis = new FileInputStream(outputTempFile);
 			props.load(fis);
 			fis.close();
-			writer.close();
-			osr.close();
-			fos.close();
 
 			outputTempFile.delete();
 
