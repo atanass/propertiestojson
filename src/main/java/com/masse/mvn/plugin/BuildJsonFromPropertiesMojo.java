@@ -129,7 +129,9 @@ public class BuildJsonFromPropertiesMojo
 			inputFileStream.close();
 
 			FileInputStream fis = new FileInputStream(outputTempFile);
-			props.load(fis);
+			InputStreamReader isr = new InputStreamReader(fis, "UTF-8");
+			props.load(isr);
+			isr.close();
 			fis.close();
 
 			outputTempFile.delete();
@@ -157,7 +159,9 @@ public class BuildJsonFromPropertiesMojo
 		File outputFile = new File(outputFileString);
 		
 		try {
-			BufferedWriter bwr = new BufferedWriter(new OutputStreamWriter( new FileOutputStream(outputFile), "UTF-8"));
+			FileOutputStream fos = new FileOutputStream(outputFile);
+			OutputStreamWriter osw = new OutputStreamWriter(fos, "UTF-8");
+			BufferedWriter bwr = new BufferedWriter(osw);
         
 			//write contents of StringBuffer to a file
         
@@ -168,6 +172,8 @@ public class BuildJsonFromPropertiesMojo
 	       
 	        //close the stream
 	        bwr.close();
+	        osw.close();
+	        fos.close();
 		} catch (IOException e) {
 			getLog().error(e);
 			throw new MojoExecutionException("json file creation error", e);
@@ -224,40 +230,28 @@ public class BuildJsonFromPropertiesMojo
 
 	private StringBuffer PrintJsonTree(TreeMap<String, PropertiesToJson> tm, int indent, boolean hasNext) {
 		StringBuffer sb = new StringBuffer();
-		sb.append("{\n");
+		sb.append("{");
 		Iterator<String> itr = tm.keySet().iterator();
 		
 		while (itr.hasNext()) {
 			PropertiesToJson ptj = tm.get(itr.next());
 		
 			if (ptj.getValue() != null) {
-				sb.append(getIndent(indent + 1) + "\"" + ptj.getJsonKey() + "\"" + ": " + "\"" + escapingQuote(ptj.getValue()) + "\"");
+				sb.append("\"" + ptj.getJsonKey() + "\"" + ":" + "\"" + escapingQuote(ptj.getValue()) + "\"");
 				if (itr.hasNext())
-					sb.append(",\n");
-				else
-					sb.append("\n");
+					sb.append(",");
 			} else {
-				sb.append(getIndent(indent + 1) + "\"" + ptj.getJsonKey() + "\"" + ": ");
+				sb.append("\"" + ptj.getJsonKey() + "\"" + ":");
 				sb.append(PrintJsonTree(ptj.getChildren(), indent + 1, itr.hasNext()));
 			}	
 		}
 		if (hasNext) {
-			sb.append(getIndent(indent) + "},\n");
+			sb.append("},");
 		} else { 
-			sb.append(getIndent(indent) + "}\n");
+			sb.append("}");
 		} 
 		
 		return sb;
-	}
-	
-	private String getIndent(int indent) {
-		String ret = "";
-		
-		for (int i=0; i< indent; i++) {
-			ret += "\t";
-		}
-		
-		return ret;
 	}
 	
 	private String getNextKey(String key, int level) {
