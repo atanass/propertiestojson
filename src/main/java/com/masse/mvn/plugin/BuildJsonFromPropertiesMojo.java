@@ -1,5 +1,7 @@
 package com.masse.mvn.plugin;
 
+import java.io.BufferedReader;
+
 /*
  * Copyright 2001-2005 The Apache Software Foundation.
  *
@@ -23,6 +25,7 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.util.Enumeration;
 import java.util.Iterator;
@@ -30,6 +33,7 @@ import java.util.Properties;
 import java.util.TreeMap;
 
 import org.apache.commons.io.filefilter.WildcardFileFilter;
+import org.apache.commons.lang.SystemUtils;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugins.annotations.LifecyclePhase;
@@ -50,6 +54,9 @@ public class BuildJsonFromPropertiesMojo
 	@Parameter(property="fileWilcard", defaultValue="*.properties")
     private String fileWilcard;
 	
+	@Parameter(property="createTargetIfAbsent")
+	private boolean createTargetIfAbsent;
+
     public void execute()
         throws MojoExecutionException
     {
@@ -62,7 +69,12 @@ public class BuildJsonFromPropertiesMojo
 
     	File dstPath = new File(jsonTargetPath);
     	if (!dstPath.isDirectory()) {
-    		throw new MojoExecutionException( "JsonTargetPath " + jsonTargetPath + " is not a directory !");
+    		if (createTargetIfAbsent) {
+    			getLog().info("---- Creating non existing directory: " + jsonTargetPath);
+    			dstPath.mkdirs();
+    		} else {
+    			throw new MojoExecutionException( "JsonTargetPath " + jsonTargetPath + " is not a directory !");
+    		}
     	}
 
     	FileFilter fileFilter = new WildcardFileFilter(fileWilcard);
@@ -76,8 +88,9 @@ public class BuildJsonFromPropertiesMojo
     
     
     private void buidJsonTargetFile(File inputFile) throws MojoExecutionException {
-		String inputFileString = inputFile.getAbsolutePath().substring(inputFile.getAbsolutePath().lastIndexOf("\\")+1);
-		String outputFileString = jsonTargetPath + "\\" + inputFileString.substring(0, inputFileString.lastIndexOf(".")) + ".json";
+
+		String inputFileString = inputFile.getAbsolutePath().substring(inputFile.getAbsolutePath().lastIndexOf(SystemUtils.IS_OS_LINUX ? "/" : "\\") + 1);
+		String outputFileString = jsonTargetPath + new String(SystemUtils.IS_OS_LINUX ? "/" : "\\") + inputFileString.substring(0, inputFileString.lastIndexOf(".")) + ".json";
        
     	getLog().info("Process file " + inputFileString);
     	
@@ -88,11 +101,48 @@ public class BuildJsonFromPropertiesMojo
         
         TreeMap<String, PropertiesToJson> propertiesJson = new TreeMap<String, PropertiesToJson>();
 		Properties props = new Properties();
-		
+
 		try {
-			FileInputStream fis = new FileInputStream(inputFile);
-			props.load(fis);
+			FileInputStream inputFileStream = new FileInputStream(inputFile);
+			BufferedReader inputFileBufferedReader = new BufferedReader(new InputStreamReader(inputFileStream, "UTF-8"));
+
+			File outputTempFile = new File(inputFileString + "-temp");
+
+			FileOutputStream outputTempFileStream = new FileOutputStream(outputTempFile);
+			OutputStreamWriter outputTempFileStrWriter = new OutputStreamWriter(outputTempFileStream, "UTF-8");
+			BufferedWriter writer = new BufferedWriter(outputTempFileStrWriter);
+
+			String line = "";
+			while ((line = inputFileBufferedReader.readLine()) != null) {
+				if(!(line.isEmpty() || line.trim().equals("") || line.trim().equals("\n"))) {
+					if(line.startsWith("#")){
+						continue;
+			        }
+		    		int equalsIndex = line.indexOf("=");
+		    		if (equalsIndex < 0) {
+		    			continue;
+		    		}
+		    		line = line.replace("\"", "&quot;");
+		    		line = line.replace("\\", "\\\\\\\\");
+		    		line = line.replace("	", "");
+					writer.write(line + "\n");
+				}
+			}
+
+			writer.close();
+			outputTempFileStrWriter.close();
+			outputTempFileStream.close();
+			
+			inputFileBufferedReader.close();
+			inputFileStream.close();
+
+			FileInputStream fis = new FileInputStream(outputTempFile);
+			InputStreamReader isr = new InputStreamReader(fis, "UTF-8");
+			props.load(isr);
+			isr.close();
 			fis.close();
+
+			outputTempFile.delete();
 
 			@SuppressWarnings("rawtypes")
 			Enumeration e = props.propertyNames();
@@ -100,7 +150,7 @@ public class BuildJsonFromPropertiesMojo
 			while (e.hasMoreElements()) {
 				String key = (String) e.nextElement();
 				
-				String rootKey = key.split("\\.")[0];
+				String rootKey = key.split("=")[0];
 				
 				propertiesJson.put(rootKey, createMap(propertiesJson, key, props.getProperty(key), 1));
 				
@@ -117,7 +167,9 @@ public class BuildJsonFromPropertiesMojo
 		File outputFile = new File(outputFileString);
 		
 		try {
-			BufferedWriter bwr = new BufferedWriter(new OutputStreamWriter( new FileOutputStream(outputFile), "UTF-8"));
+			FileOutputStream fos = new FileOutputStream(outputFile);
+			OutputStreamWriter osw = new OutputStreamWriter(fos, "UTF-8");
+			BufferedWriter bwr = new BufferedWriter(osw);
         
 			//write contents of StringBuffer to a file
         
@@ -128,6 +180,8 @@ public class BuildJsonFromPropertiesMojo
 	       
 	        //close the stream
 	        bwr.close();
+	        osw.close();
+	        fos.close();
 		} catch (IOException e) {
 			getLog().error(e);
 			throw new MojoExecutionException("json file creation error", e);
@@ -136,7 +190,7 @@ public class BuildJsonFromPropertiesMojo
     
 	private PropertiesToJson createMap(TreeMap<String, PropertiesToJson> json,
 			String key, String value, int level) {
-		String[] ks = key.split("\\.");
+		String[] ks = key.split("=");
 		String newKey = "";
 		String jsonKey = "";
 		PropertiesToJson ptj = null;
@@ -184,44 +238,32 @@ public class BuildJsonFromPropertiesMojo
 
 	private StringBuffer PrintJsonTree(TreeMap<String, PropertiesToJson> tm, int indent, boolean hasNext) {
 		StringBuffer sb = new StringBuffer();
-		sb.append("{\n");
+		sb.append("{");
 		Iterator<String> itr = tm.keySet().iterator();
 		
 		while (itr.hasNext()) {
 			PropertiesToJson ptj = tm.get(itr.next());
 		
 			if (ptj.getValue() != null) {
-				sb.append(getIndent(indent + 1) + "\"" + ptj.getJsonKey() + "\"" + ": " + "\"" + escapingQuote(ptj.getValue()) + "\"");
+				sb.append("\"" + ptj.getJsonKey() + "\"" + ":" + "\"" + escapingQuote(ptj.getValue()) + "\"");
 				if (itr.hasNext())
-					sb.append(",\n");
-				else
-					sb.append("\n");
+					sb.append(",");
 			} else {
-				sb.append(getIndent(indent + 1) + "\"" + ptj.getJsonKey() + "\"" + ": ");
+				sb.append("\"" + ptj.getJsonKey() + "\"" + ":");
 				sb.append(PrintJsonTree(ptj.getChildren(), indent + 1, itr.hasNext()));
 			}	
 		}
 		if (hasNext) {
-			sb.append(getIndent(indent) + "},\n");
+			sb.append("},");
 		} else { 
-			sb.append(getIndent(indent) + "}\n");
+			sb.append("}");
 		} 
 		
 		return sb;
 	}
 	
-	private String getIndent(int indent) {
-		String ret = "";
-		
-		for (int i=0; i< indent; i++) {
-			ret += "\t";
-		}
-		
-		return ret;
-	}
-	
 	private String getNextKey(String key, int level) {
-		String[] ks = key.split("\\.");
+		String[] ks = key.split("=");
 		String newKey = "";
 		
 		for (int i = 0; i < (level > ks.length ? ks.length  : level) ; i++) {
